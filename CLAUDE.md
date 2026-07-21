@@ -4,116 +4,172 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a Solidity smart contract project implementing a `CSMSatellite` for Lido's Community Staking Module (CSM). The contract provides efficient search and pagination functionality for finding Node Operators by address and querying deposit queue information.
+Discovery contract for CSM and Curated Module v2 via StakingRouter integration.
 
 ## Core Architecture
 
-### Main Contract: `CSMSatellite.sol`
-- **Purpose**: Provides search functionality for Node Operators through the CSM interface
-- **Key Features**:
-  - Address-based Node Operator search with pagination (`findNodeOperatorsByAddress`)
-  - Multiple search modes: current addresses, proposed addresses, or all addresses
-  - Deposit queue batch pagination with linked-list traversal (`getDepositQueueBatches`)
-- **Dependencies**: Interfaces with `ICSModule` contract for data access
+### SMDiscovery Contract: `src/SMDiscovery.sol`
 
-### Interface: `ICSModule.sol`
-- Defines the interface to the Community Staking Module
-- Contains `NodeOperator` struct with all operator properties
-- Defines `Batch` type with bitpacked data (nodeOperatorId, keysCount, next pointer)
-- Includes utility functions for unpacking batch data
+**Purpose**: Node Operator search/pagination for CSM and CMv2 via moduleId routing
+
+**Module Support**:
+
+- **CSM (Community Staking Module)**: Full support - basic discovery + queue operations
+- **CMv2 (Curated Module v2)**: Basic discovery only - queue operations not available
+- **Future modules**: Will work if they implement IStakingModule interface
+
+**Key Features**:
+- Dynamic module discovery through StakingRouter
+- Explicit cache management with `updateModuleCache()`
+- Interface detection for module-specific features
+- Support for current/proposed/all address searches
+- CSM deposit queue operations (when module supports it)
+
+**Search Modes**:
+
+- `SearchMode.CURRENT_ADDRESSES` - Search by manager/reward addresses
+- `SearchMode.PROPOSED_ADDRESSES` - Search by proposed addresses
+- `SearchMode.ALL_ADDRESSES` - Search both current and proposed
+
+**Dependencies**:
+- `IStakingRouter` for module discovery
+- `IStakingModule` for common operations
+- `ICSModule` for CSM-specific features
+
+### Interface Hierarchy
+
+```
+IStakingModule (base methods all modules implement)
+    └─> ICSModule (CSM extensions: queues, Batch type)
+```
 
 ### Deployment Scripts
-- **Base**: `DeployBase.s.sol` - Abstract deployment contract with chain validation
-- **Chain-specific**: `DeployHolesky.s.sol`, `DeployHoodi.s.sol`, `DeployMainnet.s.sol`
-- Each deployment script inherits from `DeployBase` and configures the CSModule address for the specific chain
-- **Chain Selection**: Automatic script selection based on `CHAIN` environment variable
+
+```
+script/
+├── DeployBase.s.sol              ← Abstract base deployment class
+├── DeployMainnet.s.sol           ← Mainnet deployment
+└── DeployHoodi.s.sol             ← Hoodi testnet deployment
+```
 
 ## Development Commands
 
 ### Build and Test
 ```bash
-# Default: clean and build
-just
-
-# Build contracts
-just build
-
-# Clean build artifacts
-just clean
+just              # Clean and build (default)
+just build        # Build contracts
+just clean        # Clean artifacts
 ```
 
-### Local Development
+### Deployment
 ```bash
-# Deploy to local fork (requires Anvil running)
+# Local fork (requires Anvil)
 just deploy
-```
 
-### Live Deployment
-```bash
-# Dry run deployment (recommended first)
+# Dry run (recommended first)
 just deploy-live-dry
 
-# Deploy to live network (requires confirmation)
+# Live deployment (requires confirmation)
 just deploy-live
 
-# Deploy without confirmation prompt
+# Deploy without confirmation
 just deploy-live-no-confirm
 
-# Verify contracts on block explorer
+# Verify on block explorer
 just verify-live
 ```
 
 ## Environment Configuration
 
-The project uses environment variables for configuration:
-- `CHAIN`: Target chain (mainnet, holesky, hoodi) - defaults to mainnet
+- `CHAIN`: Target chain (mainnet, hoodi) - defaults to mainnet
 - `RPC_URL`: RPC endpoint for live deployments
-- `ANVIL_IP_ADDR`: Anvil host address (defaults to 127.0.0.1)
+- `ANVIL_IP_ADDR`: Anvil host (defaults to 127.0.0.1)
 
-Create `.env` file from `.env.sample` template before deployment.
+## Module IDs
 
-## Chain-Specific CSModule Addresses
+### Mainnet (Chain ID: 1)
 
-- **Mainnet** (Chain ID: 1): `0xdA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F`
-- **Holesky** (Chain ID: 17000): `0x4562c3e63c2e586cD1651B958C22F88135aCAd4f`
-- **Hoodi** (Chain ID: 560048): `0x79CEf36D84743222f37765204Bec41E92a93E59d`
+| Module                          | ID | Contract Address                             |
+|---------------------------------|----|----------------------------------------------|
+| Community Staking Module (CSM)  | 3  | `0xdA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F` |
+| Curated Module (CM)             | 4  | TBD                                          |
+
+### Hoodi Testnet (Chain ID: 560048)
+
+| Module                          | ID | Contract Address                             |
+|---------------------------------|----|----------------------------------------------|
+| Community Staking Module (CSM)  | 4  | `0x79CEf36D84743222f37765204Bec41E92a93E59d` |
+| Curated Module (CM)             | 5  | `0x87EB69Ae51317405FD285efD2326a4a11f6173b9` |
+
+## Deployed Contracts
+
+| Chain          | StakingRouter                                | SMDiscovery                                  |
+|----------------|----------------------------------------------|----------------------------------------------|
+| Mainnet (1)    | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` | `0x6a9c16626D64dFe7A185eb6378F8eB901f96281C` |
+| Hoodi (560048) | `0xCc820558B39ee15C7C45B59390B503b83fb499A8` | `0xb3dFdcE02a83454F38Fd127E6261F7AdcDA86B47` |
 
 ## Key Technical Details
 
-### Search Functionality
-- Uses pagination to handle large Node Operator sets efficiently
-- Supports three search modes for different address types
-- Returns array of matching Node Operator IDs within specified range
+### Cache Management Pattern
 
-### Deposit Queue Operations
-- Handles linked-list style queue traversal using batch pointers
-- Provides both slot-specific and general batch retrieval
-- Uses assembly optimization for array trimming
+```solidity
+// Populate cache (permissionless, anyone can call)
+discovery.updateModuleCache(moduleId);
+
+// Use cached address for efficient queries
+discovery.findNodeOperatorsByAddress(moduleId, address, offset, limit, mode);
+```
+
+### Interface Detection (CSM-specific features)
+
+SMDiscovery gracefully handles module-specific operations:
+
+- Tries to cast to ICSModule for queue operations
+- If successful: queue operations available
+- If fails: reverts with `ModuleDoesNotSupportQueueOperations`
+
+### Data Structures
+
+**NodeOperatorShort** (returned by getNodeOperatorsByAddress):
+
+- id, managerAddress, rewardAddress, extendedManagerPermissions, curveId
+
+**NodeOperatorProposed** (returned by getNodeOperatorsByProposedAddress):
+
+- id, proposedManagerAddress, proposedRewardAddress, curveId
+
+**DepositQueueBatchInfo**:
+
+- nodeOperatorId, keysCount, next (linked-list pointer)
+
+### Common Patterns
+
+- **Stateless**: All functions are view only
+- **Immutable StakingRouter**: References governance-approved router
+- **Explicit caching**: `updateModuleCache()` for efficiency
+- **Offset-limit pagination**: Standard pattern
+- **Array trimming**: Dynamic sizing for gas efficiency
+- **Custom errors**: Gas-efficient error handling
+- **Security limits**: MAX_BATCH_SIZE (1000) prevents DoS
 
 ### Deployment Artifacts
-- Live deployment artifacts stored in `./artifacts/latest/`
-- Chain-specific artifacts moved to `./artifacts/$CHAIN/`
-- Transaction records saved in `transactions.json`
+
+Artifacts stored in `./artifacts/latest/` with transactions in `transactions.json`
 
 ## Testing
 
-**Current Status**: The project currently has no custom test files. All testing capabilities are available through Foundry's testing framework, but no project-specific tests have been implemented.
+**Current Status**: No custom tests implemented
 
-**Testing Framework**: Foundry with forge-std library
-**Test Commands**:
+**Framework**: Foundry with forge-std
+
 ```bash
-# Run tests (when implemented)
-forge test
-
-# Run specific test
-forge test --match-test testFunctionName
-
-# Run tests with gas reporting
-forge test --gas-report
+forge test                          # Run all tests
+forge test --match-test testName    # Specific test
+forge test --gas-report             # With gas reporting
 ```
 
 ## Dependencies
 
-- **Foundry**: Smart contract development framework
-- **Just**: Command runner for project tasks
-- **forge-std**: Foundry standard library for testing and scripting
+- **Foundry**: Smart contract framework
+- **Just**: Command runner
+- **forge-std**: Testing/scripting library

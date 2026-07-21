@@ -3,8 +3,6 @@ set dotenv-load
 chain := env_var_or_default("CHAIN", "mainnet")
 deploy_script_name := if chain == "mainnet" {
     "DeployMainnet"
-} else if chain == "holesky" {
-    "DeployHolesky"
 } else if chain == "hoodi" {
     "DeployHoodi"
 } else {
@@ -26,6 +24,7 @@ clean:
     forge clean
     rm -rf cache broadcast out
 
+# Deployment commands
 deploy *args:
     forge script {{deploy_script_path}} --rpc-url {{anvil_rpc_url}} --broadcast --slow {{args}}
 
@@ -33,6 +32,7 @@ deploy-live *args:
     just _warn "The current `tput bold`chain={{chain}}`tput sgr0` with the following rpc url: $RPC_URL"
     ARTIFACTS_DIR=./artifacts/latest/ just _deploy-live {{args}}
 
+    mkdir -p ./artifacts/latest/
     cp ./broadcast/{{deploy_script_name}}.s.sol/`cast chain-id --rpc-url=$RPC_URL`/run-latest.json \
         ./artifacts/latest/transactions.json
 
@@ -40,6 +40,7 @@ deploy-live-no-confirm *args:
     just _warn "The current `tput bold`chain={{chain}}`tput sgr0` with the following rpc url: $RPC_URL"
     ARTIFACTS_DIR=./artifacts/latest/ just _deploy-live-no-confirm --broadcast {{args}}
 
+    mkdir -p ./artifacts/latest/
     cp ./broadcast/{{deploy_script_name}}.s.sol/`cast chain-id --rpc-url=$RPC_URL`/run-latest.json \
         ./artifacts/latest/transactions.json
 
@@ -51,7 +52,7 @@ deploy-live-dry *args:
     just _deploy-live-no-confirm {{args}}
 
 verify-live *args:
-    just _warn "Pass --chain=your_chain manually. e.g. --chain=holesky for testnet deployment"
+    just _warn "Pass --chain=your_chain manually. e.g. --chain=mainnet or --chain=hoodi"
     forge script {{deploy_script_path}} --rpc-url ${RPC_URL} --verify {{args}} --unlocked
 
 _deploy-live-no-confirm *args:

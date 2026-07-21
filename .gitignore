@@ -6,3 +6,7 @@ broadcast/
 # Dotenv file
 .env
 .claude
+
+# SMDiscovery artifacts
+artifacts/local/
+artifacts/latest/

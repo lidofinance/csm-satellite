@@ -5,6 +5,8 @@ import {DeployBase} from "./DeployBase.s.sol";
 
 contract DeployMainnet is DeployBase {
     constructor() DeployBase("mainnet", 1) {
-        config.csModuleAddress = 0xdA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F;
+        config.stakingRouterAddress = 0xFdDf38947aFB03C621C71b06C9C70bce73f12999;
+        config.moduleIds.push(3); // CSM
+        // config.moduleIds.push(4); // CM
     }
 }
