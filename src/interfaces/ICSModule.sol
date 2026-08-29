@@ -1,11 +1,10 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.24;
 
 import {Batch} from "./IBatch.sol";
 
 interface ICSModule {
-    /// @dev QUEUE_LOWEST_PRIORITY identifies the range of available priorities: [0; QUEUE_LOWEST_PRIORITY].
-    function QUEUE_LOWEST_PRIORITY() external view returns (uint256);
+    function PARAMETERS_REGISTRY() external view returns (address);
 
     function depositQueuePointers(
         uint256 queuePriority

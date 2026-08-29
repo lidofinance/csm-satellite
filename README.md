@@ -6,7 +6,7 @@ Node Operator search and pagination for CSM and Curated Module v2 through a sing
 
 - **CSM & CMv2 Support**: Works with the Community Staking Module (full support, incl. deposit queue) and Curated Module v2 (discovery only — no queue operations)
 - **Dynamic Routing**: Module and Accounting addresses resolved via StakingRouter and cached on demand
-- **Stateless & Simple**: No ownership, view-only functions, explicit cache management
+- **Simple**: No ownership, view-only functions, explicit cache management
 - **Interface Detection**: Gracefully handles CSM-specific features (deposit queues) via `try/catch`
 - **Future-Proof**: Compatible with any module implementing `IStakingModule` and exposing `ACCOUNTING()`
 
@@ -61,7 +61,7 @@ When querying CSM modules, additional functions are available:
 | Module                          | ID | Contract Address                             |
 |---------------------------------|----|----------------------------------------------|
 | Community Staking Module (CSM)  | 3  | `0xdA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F` |
-| Curated Module (CM)             | 4  | TBD                                          |
+| Curated Module (CM)             | 4  | `0xDa5F930cE326EB5205085D66c72A4E79d60cB8C1` |
 
 #### Hoodi Testnet (Chain ID: 560048)
 
@@ -69,8 +69,13 @@ When querying CSM modules, additional functions are available:
 |---------------------------------|----|----------------------------------------------|
 | Community Staking Module (CSM)  | 4  | `0x79CEf36D84743222f37765204Bec41E92a93E59d` |
 | Curated Module (CM)             | 5  | `0x87EB69Ae51317405FD285efD2326a4a11f6173b9` |
+| Community Staking 0x02 (CSM v2) | 6  | `0xbb7dd81FAC80f3Effa10eA8b973c15AE65a4CAf9` |
 
 ## Deployment
+
+For mainnet, follow [docs/mainnet-deployment.md](docs/mainnet-deployment.md) — a step-by-step
+runbook covering pre-flight, dry run, broadcast, Etherscan verification of both contracts,
+the multisig upgrade handoff, and ossification.
 
 ### Local Fork
 ```bash
@@ -89,17 +94,39 @@ CHAIN=mainnet RPC_URL=<your-rpc> just deploy-live
 CHAIN=mainnet RPC_URL=<your-rpc> just verify-live
 ```
 
+### Upgrading
+
+`SMDiscovery` sits behind an `OssifiableProxy`, so a new release replaces the
+implementation and leaves the address alone.
+
+```bash
+# Dry run (recommended first) — pass --sender <admin> to exercise the upgrade path,
+# since forge script's default sender is never the proxy admin
+CHAIN=mainnet PROXY_ADDRESS=<proxy> just upgrade-live-dry --sender <admin>
+
+# Deploy the new implementation and upgrade
+CHAIN=mainnet RPC_URL=<your-rpc> PROXY_ADDRESS=<proxy> just upgrade-live
+```
+
+If the broadcaster is the proxy admin, the upgrade is sent directly. Otherwise the
+script deploys the implementation and logs the `proxy__upgradeTo` calldata for the
+admin multisig to submit. `STAKING_ROUTER` is read back from the existing proxy, so the
+new implementation is always deployed against the router already in use — it is never
+taken from a hardcoded constant.
+
 ### Environment Variables
 
 - `CHAIN`: Target chain (`mainnet`, `hoodi`) - defaults to `mainnet`
 - `RPC_URL`: RPC endpoint for live deployments
 - `ANVIL_IP_ADDR`: Anvil host address (defaults to `127.0.0.1`)
+- `PROXY_ADMIN`: Admin address for the OssifiableProxy - required by `just deploy` (including local Anvil, since `set dotenv-load` applies to both)
+- `PROXY_ADDRESS`: Existing proxy to upgrade - required by `just upgrade-live`
 
 ## Usage Example
 
 ```solidity
-// Deploy SMDiscovery
-SMDiscovery discovery = new SMDiscovery(stakingRouterAddress);
+// SMDiscovery sits behind an OssifiableProxy; point the ABI at the proxy address
+SMDiscovery discovery = SMDiscovery(proxyAddress);
 
 // Initialize cache for each module you need (resolves module + Accounting)
 discovery.updateModuleCache(3); // CSM (mainnet)
@@ -145,14 +172,25 @@ just clean          # Clean artifacts
 
 ## Contract Addresses
 
-| Chain          | StakingRouter                                | SMDiscovery                                  |
-|----------------|----------------------------------------------|----------------------------------------------|
-| Mainnet (1)    | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` | `0x6a9c16626D64dFe7A185eb6378F8eB901f96281C` |
-| Hoodi (560048) | `0xCc820558B39ee15C7C45B59390B503b83fb499A8` | `0xb3dFdcE02a83454F38Fd127E6261F7AdcDA86B47` |
+| Chain          | StakingRouter                                | SMDiscovery (proxy)                          | Implementation                               |
+|----------------|----------------------------------------------|----------------------------------------------|----------------------------------------------|
+| Mainnet (1)    | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` | `0x106b2E4506f3b3D0A6Dfb41bCB4A64C10Fe32b92` | `0x51E161a6989867E9EE640dFcCE15b9A983936d63` |
+| Hoodi (560048) | `0xCc820558B39ee15C7C45B59390B503b83fb499A8` | `0x9f869227c456feD9A50e272224E438b0e79c6387` | `0xB8929265b77c5Eb6F66A607D9e4002A58142A8bD` |
+
+Consumers should use the **proxy** address; the implementation is listed only for explorer
+verification and changes on every release.
+
+Proxy admins are currently the deploying EOAs — mainnet `0x3E8f6E55601BEF766634e43B26c99C4C01F71863`,
+hoodi `0x937B9327225f1756f9bb807C0f2Db37bDA002F30`. Moving the mainnet admin to a multisig
+is a `proxy__changeAdmin` call and does not require a redeploy.
+
+Pre-proxy deployments, now superseded by the proxies above and kept only for reference:
+mainnet `0x6a9c16626D64dFe7A185eb6378F8eB901f96281C`,
+hoodi `0xb3dFdcE02a83454F38Fd127E6261F7AdcDA86B47`.
 
 ## Testing
 
-Tests forthcoming. Framework: Foundry with forge-std.
+15 tests across 6 files cover proxy mechanics, selector collisions, storage layout, queue detection, and the deploy/upgrade scripts — see `CLAUDE.md`'s Testing section for the breakdown. Framework: Foundry with forge-std.
 
 ```bash
 forge test                          # Run all tests
@@ -162,4 +200,4 @@ forge test --gas-report             # With gas reporting
 
 ## License
 
-MIT
+GPL-3.0 — see [LICENSE](LICENSE).

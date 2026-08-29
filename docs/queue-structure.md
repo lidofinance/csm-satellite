@@ -88,8 +88,9 @@ function depositQueuePointers(uint256 queuePriority)
 function depositQueueItem(uint256 queuePriority, uint128 index)
     external view returns (Batch);
 
-// Get lowest priority level
-function QUEUE_LOWEST_PRIORITY() external view returns (uint256);
+// Get lowest priority level -- lives on CSParametersRegistry, NOT on the module
+function PARAMETERS_REGISTRY() external view returns (address);      // on CSModule
+function QUEUE_LOWEST_PRIORITY() external view returns (uint256);    // on CSParametersRegistry
 ```
 
 ### Aggregation Methods

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.24;
 
 import {DeployBase} from "./DeployBase.s.sol";
@@ -9,5 +9,6 @@ contract DeployHoodi is DeployBase {
             .stakingRouterAddress = 0xCc820558B39ee15C7C45B59390B503b83fb499A8;
         config.moduleIds.push(4); // CSM
         config.moduleIds.push(5); // CM
+        config.moduleIds.push(6); // CSM 0x02
     }
 }

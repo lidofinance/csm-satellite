@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.24;
 
 import "./interfaces/IStakingRouter.sol";
 import "./interfaces/IStakingModule.sol";
 import "./interfaces/ICSModule.sol";
+import "./interfaces/ICSParametersRegistry.sol";
 import "./interfaces/IAccounting.sol";
 import {Batch} from "./interfaces/IBatch.sol";
 
@@ -575,7 +576,9 @@ contract SMDiscovery {
             revert InvalidLimit(_limit, MAX_BATCH_SIZE);
         }
 
-        try this._tryGetQueuePriority(_module) returns (uint256 maxPriority) {
+        try this._tryGetMaxQueuePriority(_module) returns (
+            uint256 maxPriority
+        ) {
             ICSModule csModule = ICSModule(_module);
             if (_queuePriority > maxPriority) {
                 revert InvalidQueuePriority(_queuePriority, maxPriority);
@@ -620,10 +623,15 @@ contract SMDiscovery {
     }
 
     /// @dev Helper function for interface detection (must be external for try-catch)
-    function _tryGetQueuePriority(
+    function _tryGetMaxQueuePriority(
         address _module
     ) external view returns (uint256) {
-        return ICSModule(_module).QUEUE_LOWEST_PRIORITY();
+        // Probes a CSM-only method: the priority bound itself lives on the
+        // parameters registry, which non-CSM modules also expose.
+        ICSModule(_module).depositQueuePointers(0);
+        return
+            ICSParametersRegistry(ICSModule(_module).PARAMETERS_REGISTRY())
+                .QUEUE_LOWEST_PRIORITY();
     }
 
     /// @dev Internal implementation of getOperatorsWithLockedBond

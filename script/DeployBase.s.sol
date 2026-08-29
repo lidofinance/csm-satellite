@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.24;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
 import "../src/SMDiscovery.sol";
+import {OssifiableProxy} from "../src/lib/proxy/OssifiableProxy.sol";
 import "../src/interfaces/IStakingRouter.sol";
 
 struct DeployParams {
@@ -16,7 +17,13 @@ contract DeployBase is Script {
     string internal chainName;
     uint256 internal chainId;
 
+    SMDiscovery public implementation;
+    OssifiableProxy public proxy;
+    /// @notice The proxy, typed with the implementation ABI
+    SMDiscovery public discovery;
+
     error ChainIdMismatch(uint256 actual, uint256 expected);
+    error ProxyAdminNotSet();
 
     constructor(string memory _chainName, uint256 _chainId) {
         chainName = _chainName;
@@ -28,12 +35,15 @@ contract DeployBase is Script {
             revert ChainIdMismatch({actual: block.chainid, expected: chainId});
         }
 
+        address proxyAdmin = vm.envOr("PROXY_ADMIN", address(0));
+        if (proxyAdmin == address(0)) revert ProxyAdminNotSet();
+
         vm.startBroadcast();
 
-        // Deploy SMDiscovery (permissionless - no owner)
-        SMDiscovery discovery = new SMDiscovery(config.stakingRouterAddress);
+        implementation = new SMDiscovery(config.stakingRouterAddress);
+        proxy = new OssifiableProxy(address(implementation), proxyAdmin, "");
+        discovery = SMDiscovery(address(proxy));
 
-        // Initialize module cache for each configured module
         for (uint256 i = 0; i < config.moduleIds.length; i++) {
             uint256 moduleId = config.moduleIds[i];
             try discovery.updateModuleCache(moduleId) {
@@ -47,9 +57,10 @@ contract DeployBase is Script {
         }
         vm.stopBroadcast();
 
-        // Log deployment info
         console.log("========================================");
-        console.log("SMDiscovery deployed at:", address(discovery));
+        console.log("SMDiscovery proxy deployed at:", address(proxy));
+        console.log("SMDiscovery implementation:", address(implementation));
+        console.log("Proxy admin:", proxyAdmin);
         console.log("StakingRouter:", config.stakingRouterAddress);
         console.log("Chain:", chainName);
         console.log("ChainId:", chainId);

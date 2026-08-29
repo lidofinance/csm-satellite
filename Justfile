@@ -11,6 +11,16 @@ deploy_script_name := if chain == "mainnet" {
 
 deploy_script_path := "script" / deploy_script_name + ".s.sol:" + deploy_script_name
 
+upgrade_script_name := if chain == "mainnet" {
+    "UpgradeMainnet"
+} else if chain == "hoodi" {
+    "UpgradeHoodi"
+} else {
+    error("Unsupported chain " + chain)
+}
+
+upgrade_script_path := "script" / upgrade_script_name + ".s.sol:" + upgrade_script_name
+
 anvil_host := env_var_or_default("ANVIL_IP_ADDR", "127.0.0.1")
 anvil_port := "8545"
 anvil_rpc_url := "http://" + anvil_host + ":" + anvil_port
@@ -57,6 +67,32 @@ verify-live *args:
 
 _deploy-live-no-confirm *args:
     forge script {{deploy_script_path}} --force --rpc-url ${RPC_URL} {{args}}
+
+upgrade-live *args:
+    just _warn "The current `tput bold`chain={{chain}}`tput sgr0` with the following rpc url: $RPC_URL"
+    ARTIFACTS_DIR=./artifacts/latest/ just _upgrade-live {{args}}
+
+    mkdir -p ./artifacts/latest/
+    cp ./broadcast/{{upgrade_script_name}}.s.sol/`cast chain-id --rpc-url=$RPC_URL`/run-latest.json \
+        ./artifacts/latest/transactions.json
+
+upgrade-live-no-confirm *args:
+    just _warn "The current `tput bold`chain={{chain}}`tput sgr0` with the following rpc url: $RPC_URL"
+    ARTIFACTS_DIR=./artifacts/latest/ just _upgrade-live-no-confirm --broadcast {{args}}
+
+    mkdir -p ./artifacts/latest/
+    cp ./broadcast/{{upgrade_script_name}}.s.sol/`cast chain-id --rpc-url=$RPC_URL`/run-latest.json \
+        ./artifacts/latest/transactions.json
+
+[confirm("You are about to broadcast upgrade transactions to the network. Are you sure?")]
+_upgrade-live *args:
+    just _upgrade-live-no-confirm --broadcast --verify {{args}}
+
+upgrade-live-dry *args:
+    just _upgrade-live-no-confirm {{args}}
+
+_upgrade-live-no-confirm *args:
+    forge script {{upgrade_script_path}} --force --rpc-url ${RPC_URL} {{args}}
 
 _warn message:
     @tput setaf 3 && printf "[WARNING]" && tput sgr0 && echo " {{message}}"

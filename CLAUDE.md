@@ -92,7 +92,7 @@ just verify-live
 | Module                          | ID | Contract Address                             |
 |---------------------------------|----|----------------------------------------------|
 | Community Staking Module (CSM)  | 3  | `0xdA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F` |
-| Curated Module (CM)             | 4  | TBD                                          |
+| Curated Module (CM)             | 4  | `0xDa5F930cE326EB5205085D66c72A4E79d60cB8C1` |
 
 ### Hoodi Testnet (Chain ID: 560048)
 
@@ -100,13 +100,25 @@ just verify-live
 |---------------------------------|----|----------------------------------------------|
 | Community Staking Module (CSM)  | 4  | `0x79CEf36D84743222f37765204Bec41E92a93E59d` |
 | Curated Module (CM)             | 5  | `0x87EB69Ae51317405FD285efD2326a4a11f6173b9` |
+| Community Staking 0x02 (CSM v2) | 6  | `0xbb7dd81FAC80f3Effa10eA8b973c15AE65a4CAf9` |
 
 ## Deployed Contracts
 
-| Chain          | StakingRouter                                | SMDiscovery                                  |
-|----------------|----------------------------------------------|----------------------------------------------|
-| Mainnet (1)    | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` | `0x6a9c16626D64dFe7A185eb6378F8eB901f96281C` |
-| Hoodi (560048) | `0xCc820558B39ee15C7C45B59390B503b83fb499A8` | `0xb3dFdcE02a83454F38Fd127E6261F7AdcDA86B47` |
+| Chain          | StakingRouter                                | SMDiscovery (proxy)                          | Implementation                               |
+|----------------|----------------------------------------------|----------------------------------------------|----------------------------------------------|
+| Mainnet (1)    | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` | `0x106b2E4506f3b3D0A6Dfb41bCB4A64C10Fe32b92` | `0x51E161a6989867E9EE640dFcCE15b9A983936d63` |
+| Hoodi (560048) | `0xCc820558B39ee15C7C45B59390B503b83fb499A8` | `0x9f869227c456feD9A50e272224E438b0e79c6387` | `0xB8929265b77c5Eb6F66A607D9e4002A58142A8bD` |
+
+Consumers should use the **proxy** address; the implementation is listed only for explorer
+verification and changes on every release.
+
+Proxy admins are currently the deploying EOAs — mainnet `0x3E8f6E55601BEF766634e43B26c99C4C01F71863`,
+hoodi `0x937B9327225f1756f9bb807C0f2Db37bDA002F30`. Moving the mainnet admin to a multisig
+is a `proxy__changeAdmin` call and does not require a redeploy.
+
+Pre-proxy deployments, now superseded by the proxies above and kept only for reference:
+mainnet `0x6a9c16626D64dFe7A185eb6378F8eB901f96281C`,
+hoodi `0xb3dFdcE02a83454F38Fd127E6261F7AdcDA86B47`.
 
 ## Key Technical Details
 
@@ -120,11 +132,30 @@ discovery.updateModuleCache(moduleId);
 discovery.findNodeOperatorsByAddress(moduleId, address, offset, limit, mode);
 ```
 
+### Proxy Pattern
+
+`SMDiscovery` sits behind Lido's `OssifiableProxy` (`src/lib/proxy/OssifiableProxy.sol`,
+vendored from CSM with the pragma relaxed to 0.8.24). The address is stable across releases.
+
+- `SMDiscovery` has no initializer: `STAKING_ROUTER` is `immutable` and lives in the
+  implementation bytecode; `moduleCache` is filled by the permissionless `updateModuleCache()`.
+- `moduleCache` occupies storage slot 0. New state variables may only be appended.
+- Releasing a new implementation: `CHAIN=<chain> PROXY_ADDRESS=<proxy> just upgrade-live`.
+  If the broadcaster is the proxy admin the upgrade is sent directly; otherwise the script
+  logs the `proxy__upgradeTo` calldata for the admin multisig to submit.
+- `proxy__ossify()` freezes the implementation permanently once the ABI settles.
+
+Environment variables: `PROXY_ADMIN` (required by deploy scripts), `PROXY_ADDRESS`
+(required by upgrade scripts).
+
+Mainnet procedure (deploy, Etherscan verification, multisig upgrade handoff, ossification):
+[docs/mainnet-deployment.md](docs/mainnet-deployment.md).
+
 ### Interface Detection (CSM-specific features)
 
 SMDiscovery gracefully handles module-specific operations:
 
-- Tries to cast to ICSModule for queue operations
+- Probes `depositQueuePointers()` (CSM-only) via `try/catch`; the priority bound itself is read from `PARAMETERS_REGISTRY().QUEUE_LOWEST_PRIORITY()`, since non-CSM modules may also expose a registry
 - If successful: queue operations available
 - If fails: reverts with `ModuleDoesNotSupportQueueOperations`
 
@@ -158,7 +189,17 @@ Artifacts stored in `./artifacts/latest/` with transactions in `transactions.jso
 
 ## Testing
 
-**Current Status**: No custom tests implemented
+**Current Status**: Proxy mechanics covered by local-mock tests; queue detection and the
+deploy script are covered by Hoodi fork tests that skip when `RPC_URL` is unset.
+
+| File | Covers |
+|------|--------|
+| `test/Proxy.t.sol` | immutables through delegatecall, cache preservation across upgrade, admin control, ossification |
+| `test/SelectorCollision.t.sol` | no proxy selector shadows an implementation method |
+| `test/StorageLayout.t.sol` | `moduleCache` is the only storage variable, at slot 0 |
+| `test/QueueDetection.t.sol` | CSM queue detection, direct and proxied (fork) |
+| `test/DeployScript.t.sol` | deploy script wires proxy and seeds cache (fork) |
+| `test/UpgradeScript.t.sol` | upgrade script admin/non-admin branches |
 
 **Framework**: Foundry with forge-std
 
