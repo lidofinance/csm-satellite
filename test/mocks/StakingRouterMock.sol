@@ -13,6 +13,7 @@ contract StakingRouterMock {
     function getStakingModule(
         uint256 id
     ) external view returns (IStakingRouter.StakingModule memory sm) {
+        // forge-lint: disable-next-line(unsafe-typecast)
         sm.id = uint24(id);
         sm.stakingModuleAddress = _modules[id];
     }

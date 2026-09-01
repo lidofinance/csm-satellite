@@ -18,6 +18,7 @@ struct NodeOperatorShort {
     address managerAddress;
     address rewardAddress;
     bool extendedManagerPermissions;
+    address claimerAddress;
     uint256 curveId;
 }
 
@@ -36,6 +37,7 @@ struct NodeOperatorInfo {
     bool extendedManagerPermissions;
     address proposedManagerAddress;
     address proposedRewardAddress;
+    address claimerAddress;
     uint256 curveId;
 }
 
@@ -48,7 +50,9 @@ struct NodeOperatorLockedBond {
 enum SearchMode {
     CURRENT_ADDRESSES,
     PROPOSED_ADDRESSES,
-    ALL_ADDRESSES
+    ALL_ADDRESSES,
+    CLAIMER,
+    ANY_ROLE
 }
 
 // Custom errors
@@ -115,7 +119,7 @@ contract SMDiscovery {
     }
 
     /// @notice Find Node Operator IDs by address within a range
-    /// @param _searchMode Which addresses to check (current/proposed/all)
+    /// @param _searchMode Roles to check: current, proposed, all, claimer or any role
     function findNodeOperatorsByAddress(
         uint256 _moduleId,
         address _addressToSearch,
@@ -123,10 +127,13 @@ contract SMDiscovery {
         uint256 _limit,
         SearchMode _searchMode
     ) external view returns (uint256[] memory) {
-        (address moduleAddr, ) = _getValidatedCache(_moduleId);
+        (address moduleAddr, address accountingAddr) = _getValidatedCache(
+            _moduleId
+        );
         return
             _findOperators(
                 moduleAddr,
+                accountingAddr,
                 _addressToSearch,
                 _offset,
                 _limit,
@@ -135,7 +142,7 @@ contract SMDiscovery {
     }
 
     /// @notice Get Node Operator details by current address
-    /// @dev Only searches managerAddress and rewardAddress
+    /// @dev Searches managerAddress, rewardAddress and the custom rewards claimer
     function getNodeOperatorsByAddress(
         uint256 _moduleId,
         address _addressToSearch,
@@ -304,10 +311,38 @@ contract SMDiscovery {
         }
     }
 
+    /// @dev Reads only what the mode needs: CLAIMER skips the module call entirely
+    function _matchesOperator(
+        address _module,
+        address _accountingAddress,
+        uint256 _id,
+        address _addressToSearch,
+        SearchMode _searchMode
+    ) internal view returns (bool) {
+        if (_searchMode == SearchMode.CLAIMER) {
+            return
+                IAccounting(_accountingAddress).getCustomRewardsClaimer(_id) ==
+                _addressToSearch;
+        }
+
+        address claimer = _searchMode == SearchMode.ANY_ROLE
+            ? IAccounting(_accountingAddress).getCustomRewardsClaimer(_id)
+            : address(0);
+
+        return
+            _matchesAddress(
+                IStakingModule(_module).getNodeOperator(_id),
+                _addressToSearch,
+                claimer,
+                _searchMode
+            );
+    }
+
     /// @dev Check if operator matches address based on search mode
     function _matchesAddress(
         IStakingModule.NodeOperator memory _operator,
         address _addressToSearch,
+        address _claimer,
         SearchMode _searchMode
     ) internal pure returns (bool matches) {
         if (_searchMode == SearchMode.CURRENT_ADDRESSES) {
@@ -316,12 +351,20 @@ contract SMDiscovery {
         } else if (_searchMode == SearchMode.PROPOSED_ADDRESSES) {
             return (_operator.proposedManagerAddress == _addressToSearch ||
                 _operator.proposedRewardAddress == _addressToSearch);
-        } else {
-            // SearchMode.ALL_ADDRESSES
+        } else if (_searchMode == SearchMode.ALL_ADDRESSES) {
             return (_operator.managerAddress == _addressToSearch ||
                 _operator.rewardAddress == _addressToSearch ||
                 _operator.proposedManagerAddress == _addressToSearch ||
                 _operator.proposedRewardAddress == _addressToSearch);
+        } else if (_searchMode == SearchMode.CLAIMER) {
+            return _claimer == _addressToSearch;
+        } else {
+            // SearchMode.ANY_ROLE
+            return (_operator.managerAddress == _addressToSearch ||
+                _operator.rewardAddress == _addressToSearch ||
+                _operator.proposedManagerAddress == _addressToSearch ||
+                _operator.proposedRewardAddress == _addressToSearch ||
+                _claimer == _addressToSearch);
         }
     }
 
@@ -339,6 +382,7 @@ contract SMDiscovery {
     /// @dev Internal implementation of findNodeOperatorsByAddress
     function _findOperators(
         address _module,
+        address _accountingAddress,
         address _addressToSearch,
         uint256 _offset,
         uint256 _limit,
@@ -346,13 +390,10 @@ contract SMDiscovery {
     ) internal view returns (uint256[] memory) {
         _validateSearchParams(_addressToSearch, _limit);
 
-        IStakingModule module = IStakingModule(_module);
-        uint256 totalOperators = module.getNodeOperatorsCount();
-
         (uint256 start, uint256 end, bool isEmpty) = _calculateBounds(
             _offset,
             _limit,
-            totalOperators
+            IStakingModule(_module).getNodeOperatorsCount()
         );
         if (isEmpty) return new uint256[](0);
 
@@ -360,10 +401,15 @@ contract SMDiscovery {
         uint256 resultCount = 0;
 
         for (uint256 i = start; i < end; i++) {
-            IStakingModule.NodeOperator memory operator = module
-                .getNodeOperator(i);
-
-            if (_matchesAddress(operator, _addressToSearch, _searchMode)) {
+            if (
+                _matchesOperator(
+                    _module,
+                    _accountingAddress,
+                    i,
+                    _addressToSearch,
+                    _searchMode
+                )
+            ) {
                 tempResults[resultCount] = i;
                 resultCount++;
             }
@@ -397,6 +443,7 @@ contract SMDiscovery {
         );
         if (isEmpty) return new NodeOperatorShort[](0);
 
+        IAccounting accounting = IAccounting(_accountingAddress);
         NodeOperatorShort[] memory tempResults = new NodeOperatorShort[](
             _limit
         );
@@ -405,10 +452,12 @@ contract SMDiscovery {
         for (uint256 i = start; i < end; i++) {
             IStakingModule.NodeOperatorManagementProperties
                 memory operator = module.getNodeOperatorManagementProperties(i);
+            address claimerAddress = accounting.getCustomRewardsClaimer(i);
 
             if (
                 operator.managerAddress == _addressToSearch ||
-                operator.rewardAddress == _addressToSearch
+                operator.rewardAddress == _addressToSearch ||
+                claimerAddress == _addressToSearch
             ) {
                 tempResults[resultCount] = NodeOperatorShort({
                     id: i,
@@ -416,7 +465,8 @@ contract SMDiscovery {
                     rewardAddress: operator.rewardAddress,
                     extendedManagerPermissions: operator
                         .extendedManagerPermissions,
-                    curveId: IAccounting(_accountingAddress).getBondCurveId(i)
+                    claimerAddress: claimerAddress,
+                    curveId: accounting.getBondCurveId(i)
                 });
                 resultCount++;
             }
@@ -524,6 +574,7 @@ contract SMDiscovery {
                     .extendedManagerPermissions,
                 proposedManagerAddress: operator.proposedManagerAddress,
                 proposedRewardAddress: operator.proposedRewardAddress,
+                claimerAddress: accounting.getCustomRewardsClaimer(i),
                 curveId: accounting.getBondCurveId(i)
             });
         }
@@ -723,6 +774,7 @@ contract SMDiscovery {
                 managerAddress: operator.managerAddress,
                 rewardAddress: operator.rewardAddress,
                 extendedManagerPermissions: operator.extendedManagerPermissions,
+                claimerAddress: accounting.getCustomRewardsClaimer(i),
                 curveId: _curveId
             });
             resultCount++;

@@ -22,7 +22,7 @@ Discovery contract for CSM and Curated Module v2 via StakingRouter integration.
 - Dynamic module discovery through StakingRouter
 - Explicit cache management with `updateModuleCache()`
 - Interface detection for module-specific features
-- Support for current/proposed/all address searches
+- Support for current/proposed/claimer/all address searches
 - CSM deposit queue operations (when module supports it)
 
 **Search Modes**:
@@ -30,6 +30,14 @@ Discovery contract for CSM and Curated Module v2 via StakingRouter integration.
 - `SearchMode.CURRENT_ADDRESSES` - Search by manager/reward addresses
 - `SearchMode.PROPOSED_ADDRESSES` - Search by proposed addresses
 - `SearchMode.ALL_ADDRESSES` - Search both current and proposed
+- `SearchMode.CLAIMER` - Search by custom rewards claimer
+- `SearchMode.ANY_ROLE` - Search current + proposed + claimer
+
+Within `findNodeOperatorsByAddress`, `CLAIMER` and `ANY_ROLE` are the only modes that read
+Accounting; the other three make no extra external call, and `CLAIMER` also skips the module read.
+This does not generalise: `getNodeOperatorsByAddress`, `getAllNodeOperators` and
+`getOperatorsByCurveId` take no `SearchMode` and read the claimer for every operator scanned.
+Enum values are appended, so existing ordinals are unchanged.
 
 **Dependencies**:
 - `IStakingRouter` for module discovery
@@ -161,17 +169,40 @@ SMDiscovery gracefully handles module-specific operations:
 
 ### Data Structures
 
-**NodeOperatorShort** (returned by getNodeOperatorsByAddress):
+**NodeOperatorShort** (returned by getNodeOperatorsByAddress, getOperatorsByCurveId):
 
-- id, managerAddress, rewardAddress, extendedManagerPermissions, curveId
+- id, managerAddress, rewardAddress, extendedManagerPermissions, claimerAddress, curveId
 
 **NodeOperatorProposed** (returned by getNodeOperatorsByProposedAddress):
 
 - id, proposedManagerAddress, proposedRewardAddress, curveId
 
+**NodeOperatorInfo** (returned by getAllNodeOperators):
+
+- id, managerAddress, rewardAddress, extendedManagerPermissions, proposedManagerAddress,
+  proposedRewardAddress, claimerAddress, curveId
+
 **DepositQueueBatchInfo**:
 
 - nodeOperatorId, keysCount, next (linked-list pointer)
+
+### Custom Rewards Claimer
+
+`Accounting.getCustomRewardsClaimer(nodeOperatorId)` returns an address allowed to claim rewards
+*in addition to* managerAddress and rewardAddress, or `address(0)` when unset. Present on every
+deployed module's Accounting (mainnet CSM/CM, hoodi CSM v1/v2/CM), so no interface detection is
+used — an unsupported module reverts loudly.
+
+`getNodeOperatorsByAddress` matches manager, reward **and** claimer, so a claimer-only wallet is
+no longer invisible. `_matchesAddress` stays `pure`: the claimer is fetched by the caller and
+passed in, which is what keeps the non-claimer modes free.
+
+Searching for `address(0)` is rejected (`AddressCannotBeZero`): unset claimers read as zero, so
+it would otherwise match every operator that never set one.
+
+There is no way to enumerate operators that set *any* claimer — every claimer query needs an
+address to search for. Counting delegations means scanning `getAllNodeOperators` and filtering
+on the `claimerAddress` field.
 
 ### Common Patterns
 
@@ -189,8 +220,9 @@ Artifacts stored in `./artifacts/latest/` with transactions in `transactions.jso
 
 ## Testing
 
-**Current Status**: Proxy mechanics covered by local-mock tests; queue detection and the
-deploy script are covered by Hoodi fork tests that skip when `RPC_URL` is unset.
+**Current Status**: Proxy mechanics and claimer search covered by local-mock tests; queue
+detection, the deploy script and a live-Accounting claimer probe are covered by Hoodi fork tests
+that skip when `RPC_URL` is unset.
 
 | File | Covers |
 |------|--------|
@@ -198,6 +230,7 @@ deploy script are covered by Hoodi fork tests that skip when `RPC_URL` is unset.
 | `test/SelectorCollision.t.sol` | no proxy selector shadows an implementation method |
 | `test/StorageLayout.t.sol` | `moduleCache` is the only storage variable, at slot 0 |
 | `test/QueueDetection.t.sol` | CSM queue detection, direct and proxied (fork) |
+| `test/ClaimerSearch.t.sol` | CLAIMER/ANY_ROLE modes and their isolation from other modes, `claimerAddress` field population, guards; live Accounting smoke test (fork) |
 | `test/DeployScript.t.sol` | deploy script wires proxy and seeds cache (fork) |
 | `test/UpgradeScript.t.sol` | upgrade script admin/non-admin branches |
 

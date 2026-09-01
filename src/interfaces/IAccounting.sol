@@ -19,4 +19,9 @@ interface IAccounting {
     /// @param nodeOperatorId ID of the Node Operator
     /// @return Locked bond info {amount, until}
     function getLockedBondInfo(uint256 nodeOperatorId) external view returns (BondLockData memory);
+
+    /// @notice Get the custom rewards claimer for the given Node Operator
+    /// @param nodeOperatorId ID of the Node Operator
+    /// @return Claimer address, or address(0) if none is set
+    function getCustomRewardsClaimer(uint256 nodeOperatorId) external view returns (address);
 }
