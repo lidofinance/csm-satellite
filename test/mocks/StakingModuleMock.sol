@@ -2,11 +2,17 @@
 pragma solidity 0.8.24;
 
 import {IStakingModule} from "../../src/interfaces/IStakingModule.sol";
+import {TopUpQueueEntry} from "../../src/SMDiscovery.sol";
 
 contract StakingModuleMock {
     address public accountingAddress;
 
     IStakingModule.NodeOperator[] internal _operators;
+
+    TopUpQueueEntry[] internal _topUpQueueItems;
+    uint256 internal _topUpQueueHead;
+    uint256 internal _topUpQueueLimit;
+    bool internal _topUpQueueEnabled;
 
     constructor(address accounting_) {
         accountingAddress = accounting_;
@@ -60,5 +66,24 @@ contract StakingModuleMock {
             rewardAddress: no.rewardAddress,
             extendedManagerPermissions: no.extendedManagerPermissions
         });
+    }
+
+    function setTopUpQueue(bool enabled, uint256 limit, uint256 head) external {
+        _topUpQueueEnabled = enabled;
+        _topUpQueueLimit = limit;
+        _topUpQueueHead = head;
+    }
+
+    function pushTopUpQueueItem(uint256 noId, uint256 keyIndex) external {
+        _topUpQueueItems.push(TopUpQueueEntry({nodeOperatorId: noId, keyIndex: keyIndex}));
+    }
+
+    function getTopUpQueue() external view returns (bool enabled, uint256 limit, uint256 length, uint256 head) {
+        return (_topUpQueueEnabled, _topUpQueueLimit, _topUpQueueItems.length - _topUpQueueHead, _topUpQueueHead);
+    }
+
+    function getTopUpQueueItem(uint256 index) external view returns (uint256 nodeOperatorId, uint256 keyIndex) {
+        TopUpQueueEntry storage item = _topUpQueueItems[_topUpQueueHead + index];
+        return (item.nodeOperatorId, item.keyIndex);
     }
 }

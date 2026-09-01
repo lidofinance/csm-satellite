@@ -3,29 +3,11 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import "../src/SMDiscovery.sol";
-import {StakingRouterMock} from "./mocks/StakingRouterMock.sol";
-import {StakingModuleMock} from "./mocks/StakingModuleMock.sol";
-import {AccountingMock} from "./mocks/AccountingMock.sol";
+import {MockFixture} from "./helpers/MockFixture.sol";
 
-contract ClaimerSearchTest is Test {
-    uint256 internal constant MODULE_ID = 3;
+contract ClaimerSearchTest is MockFixture {
     address internal constant CLAIMER = address(0xC1A1);
     address internal constant OTHER_CLAIMER = address(0xC1A2);
-
-    StakingRouterMock internal router;
-    StakingModuleMock internal module;
-    AccountingMock internal accounting;
-    SMDiscovery internal discovery;
-
-    function setUp() external {
-        router = new StakingRouterMock();
-        accounting = new AccountingMock();
-        module = new StakingModuleMock(address(accounting));
-        router.setModule(MODULE_ID, address(module));
-
-        discovery = new SMDiscovery(address(router));
-        discovery.updateModuleCache(MODULE_ID);
-    }
 
     function _addOperators(uint256 count) internal {
         for (uint256 i = 0; i < count; i++) {
@@ -39,6 +21,13 @@ contract ClaimerSearchTest is Test {
         }
     }
 
+    function _find(
+        address addr,
+        SearchMode mode
+    ) internal view returns (uint256[] memory) {
+        return discovery.findNodeOperatorsByAddress(MODULE_ID, addr, 0, 10, mode);
+    }
+
     function test_findNodeOperatorsByAddress_claimerMode_returnsOnlyMatchingIds()
         external
     {
@@ -47,13 +36,7 @@ contract ClaimerSearchTest is Test {
         accounting.setCustomRewardsClaimer(2, OTHER_CLAIMER);
         accounting.setCustomRewardsClaimer(3, CLAIMER);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.CLAIMER
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.CLAIMER);
 
         assertEq(ids.length, 2);
         assertEq(ids[0], 1);
@@ -66,13 +49,7 @@ contract ClaimerSearchTest is Test {
         _addOperators(2);
         accounting.setCustomRewardsClaimer(0, CLAIMER);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.CURRENT_ADDRESSES
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.CURRENT_ADDRESSES);
         assertEq(ids.length, 0);
     }
 
@@ -80,26 +57,14 @@ contract ClaimerSearchTest is Test {
         _addOperators(2);
         accounting.setCustomRewardsClaimer(0, CLAIMER);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.ALL_ADDRESSES
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.ALL_ADDRESSES);
         assertEq(ids.length, 0);
     }
 
     function test_anyRoleMode_matchesViaManagerOnly() external {
         uint256 opId = module.addOperator(CLAIMER, address(0xBBB1), false);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.ANY_ROLE
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.ANY_ROLE);
         assertEq(ids.length, 1);
         assertEq(ids[0], opId);
     }
@@ -107,13 +72,7 @@ contract ClaimerSearchTest is Test {
     function test_anyRoleMode_matchesViaRewardOnly() external {
         uint256 opId = module.addOperator(address(0xAAA1), CLAIMER, false);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.ANY_ROLE
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.ANY_ROLE);
         assertEq(ids.length, 1);
         assertEq(ids[0], opId);
     }
@@ -126,13 +85,7 @@ contract ClaimerSearchTest is Test {
         );
         module.setProposedAddresses(opId, CLAIMER, address(0));
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.ANY_ROLE
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.ANY_ROLE);
         assertEq(ids.length, 1);
         assertEq(ids[0], opId);
     }
@@ -145,13 +98,7 @@ contract ClaimerSearchTest is Test {
         );
         accounting.setCustomRewardsClaimer(opId, CLAIMER);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.ANY_ROLE
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.ANY_ROLE);
         assertEq(ids.length, 1);
         assertEq(ids[0], opId);
     }
@@ -159,26 +106,14 @@ contract ClaimerSearchTest is Test {
     function test_claimerMode_doesNotMatchManagerOnlyAddress() external {
         module.addOperator(CLAIMER, address(0xBBB1), false);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.CLAIMER
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.CLAIMER);
         assertEq(ids.length, 0);
     }
 
     function test_claimerMode_doesNotMatchRewardOnlyAddress() external {
         module.addOperator(address(0xAAA1), CLAIMER, false);
 
-        uint256[] memory ids = discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            CLAIMER,
-            0,
-            10,
-            SearchMode.CLAIMER
-        );
+        uint256[] memory ids = _find(CLAIMER, SearchMode.CLAIMER);
         assertEq(ids.length, 0);
     }
 
@@ -313,13 +248,7 @@ contract ClaimerSearchTest is Test {
     {
         _addOperators(1);
         vm.expectRevert(AddressCannotBeZero.selector);
-        discovery.findNodeOperatorsByAddress(
-            MODULE_ID,
-            address(0),
-            0,
-            10,
-            SearchMode.CLAIMER
-        );
+        _find(address(0), SearchMode.CLAIMER);
     }
 
     function test_getNodeOperatorsByAddress_revertsForZeroAddress() external {

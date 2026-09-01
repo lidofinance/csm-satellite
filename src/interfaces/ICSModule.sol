@@ -14,4 +14,13 @@ interface ICSModule {
         uint256 queuePriority,
         uint128 index
     ) external view returns (Batch);
+
+    function getTopUpQueue()
+        external
+        view
+        returns (bool enabled, uint256 limit, uint256 length, uint256 head);
+
+    function getTopUpQueueItem(
+        uint256 index
+    ) external view returns (uint256 nodeOperatorId, uint256 keyIndex);
 }

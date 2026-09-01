@@ -35,6 +35,7 @@ Discovery contract for CSM and Curated Module v2 via StakingRouter integration.
 
 Within `findNodeOperatorsByAddress`, `CLAIMER` and `ANY_ROLE` are the only modes that read
 Accounting; the other three make no extra external call, and `CLAIMER` also skips the module read.
+`ANY_ROLE` reads the claimer lazily — only when no module address matched.
 This does not generalise: `getNodeOperatorsByAddress`, `getAllNodeOperators` and
 `getOperatorsByCurveId` take no `SearchMode` and read the claimer for every operator scanned.
 Enum values are appended, so existing ordinals are unchanged.
@@ -186,6 +187,17 @@ SMDiscovery gracefully handles module-specific operations:
 
 - nodeOperatorId, keysCount, next (linked-list pointer)
 
+**TopUpQueueEntry** (returned by getTopUpQueueItems):
+
+- nodeOperatorId, keyIndex
+
+### Top-Up Queue
+
+`getTopUpQueueItems` mirrors CSM's `getTopUpQueue()`/`getTopUpQueueItem()` pair. `_offset` is
+head-relative, matching the module's own indexing — not an absolute queue position. `limit` is a
+`uint8` on-chain, so the queue never exceeds 255 entries. A disabled queue (`enabled == false`)
+still reports whatever entries it holds; disabling doesn't drain `items`.
+
 ### Custom Rewards Claimer
 
 `Accounting.getCustomRewardsClaimer(nodeOperatorId)` returns an address allowed to claim rewards
@@ -194,8 +206,8 @@ deployed module's Accounting (mainnet CSM/CM, hoodi CSM v1/v2/CM), so no interfa
 used — an unsupported module reverts loudly.
 
 `getNodeOperatorsByAddress` matches manager, reward **and** claimer, so a claimer-only wallet is
-no longer invisible. `_matchesAddress` stays `pure`: the claimer is fetched by the caller and
-passed in, which is what keeps the non-claimer modes free.
+no longer invisible. `_matchesAddress` stays `pure` and claimer-free; `_matchesOperator` reads the
+claimer only for `CLAIMER` mode and for `ANY_ROLE` address-misses.
 
 Searching for `address(0)` is rejected (`AddressCannotBeZero`): unset claimers read as zero, so
 it would otherwise match every operator that never set one.
@@ -220,9 +232,9 @@ Artifacts stored in `./artifacts/latest/` with transactions in `transactions.jso
 
 ## Testing
 
-**Current Status**: Proxy mechanics and claimer search covered by local-mock tests; queue
-detection, the deploy script and a live-Accounting claimer probe are covered by Hoodi fork tests
-that skip when `RPC_URL` is unset.
+**Current Status**: Proxy mechanics, claimer search and the top-up queue read covered by
+local-mock tests; queue detection, the deploy script, a live-Accounting claimer probe and a
+live top-up queue fixture are covered by Hoodi fork tests that skip when `RPC_URL` is unset.
 
 | File | Covers |
 |------|--------|
@@ -231,6 +243,8 @@ that skip when `RPC_URL` is unset.
 | `test/StorageLayout.t.sol` | `moduleCache` is the only storage variable, at slot 0 |
 | `test/QueueDetection.t.sol` | CSM queue detection, direct and proxied (fork) |
 | `test/ClaimerSearch.t.sol` | CLAIMER/ANY_ROLE modes and their isolation from other modes, `claimerAddress` field population, guards; live Accounting smoke test (fork) |
+| `test/TopUpQueue.t.sol` | head-relative offset slicing, disabled-queue no-short-circuit, interface detection, guards |
+| `test/TopUpQueueFork.t.sol` | top-up queue read against a live CSM v2 fixture, direct and proxied (fork) |
 | `test/DeployScript.t.sol` | deploy script wires proxy and seeds cache (fork) |
 | `test/UpgradeScript.t.sol` | upgrade script admin/non-admin branches |
 

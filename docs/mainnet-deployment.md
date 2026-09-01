@@ -222,7 +222,7 @@ cast call $PROXY "moduleCache(uint256)(address,address)" 3 --rpc-url=$RPC_URL
 One real read, to prove the whole path end to end:
 
 ```bash
-cast call $PROXY "getAllNodeOperators(uint256,uint256,uint256)((uint256,address,address,bool,address,address,uint256)[])" 3 0 3 --rpc-url=$RPC_URL
+cast call $PROXY "getAllNodeOperators(uint256,uint256,uint256)((uint256,address,address,bool,address,address,address,uint256)[])" 3 0 3 --rpc-url=$RPC_URL
 ```
 
 ## 7. Record the deployment

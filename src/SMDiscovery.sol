@@ -47,6 +47,11 @@ struct NodeOperatorLockedBond {
     uint128 until;
 }
 
+struct TopUpQueueEntry {
+    uint256 nodeOperatorId;
+    uint256 keyIndex;
+}
+
 enum SearchMode {
     CURRENT_ADDRESSES,
     PROPOSED_ADDRESSES,
@@ -223,6 +228,28 @@ contract SMDiscovery {
             _getQueueBatches(moduleAddr, _queuePriority, _cursorIndex, _limit);
     }
 
+    /// @notice Get top-up queue entry identities in FIFO order
+    /// @dev CSM-specific, reverts for unsupported modules
+    /// @param _offset Head-relative start position, matching CSM's own getTopUpQueueItem indexing
+    function getTopUpQueueItems(
+        uint256 _moduleId,
+        uint256 _offset,
+        uint256 _limit
+    )
+        external
+        view
+        returns (
+            bool enabled,
+            uint256 limit,
+            uint256 total,
+            uint256 head,
+            TopUpQueueEntry[] memory items
+        )
+    {
+        (address moduleAddr, ) = _getValidatedCache(_moduleId);
+        return _getTopUpQueueItems(moduleAddr, _offset, _limit);
+    }
+
     /// @notice Get Node Operators with non-zero locked bond in a paginated range
     /// @dev Pagination is over operator-ID space [_offset, _offset+_limit); the returned array contains
     ///      only operators whose stored locked-bond amount is non-zero. Callers compare `until` against
@@ -274,9 +301,7 @@ contract SMDiscovery {
         uint256 _limit
     ) internal pure {
         if (_addressToSearch == address(0)) revert AddressCannotBeZero();
-        if (_limit == 0 || _limit > MAX_BATCH_SIZE) {
-            revert InvalidLimit(_limit, MAX_BATCH_SIZE);
-        }
+        _validateLimit(_limit);
     }
 
     /// @dev Calculate bounds with overflow protection, returns isEmpty if offset >= total
@@ -311,7 +336,15 @@ contract SMDiscovery {
         }
     }
 
-    /// @dev Reads only what the mode needs: CLAIMER skips the module call entirely
+    /// @dev Validates limit is in (0, MAX_BATCH_SIZE]
+    function _validateLimit(uint256 _limit) internal pure {
+        if (_limit == 0 || _limit > MAX_BATCH_SIZE) {
+            revert InvalidLimit(_limit, MAX_BATCH_SIZE);
+        }
+    }
+
+    /// @dev Reads only what the mode needs: CLAIMER skips the module call entirely;
+    ///      ANY_ROLE reads the claimer only when no module address matched
     function _matchesOperator(
         address _module,
         address _accountingAddress,
@@ -325,24 +358,28 @@ contract SMDiscovery {
                 _addressToSearch;
         }
 
-        address claimer = _searchMode == SearchMode.ANY_ROLE
-            ? IAccounting(_accountingAddress).getCustomRewardsClaimer(_id)
-            : address(0);
+        IStakingModule.NodeOperator memory operator = IStakingModule(_module)
+            .getNodeOperator(_id);
+
+        bool matchesAddress = _matchesAddress(
+            operator,
+            _addressToSearch,
+            _searchMode == SearchMode.ANY_ROLE
+                ? SearchMode.ALL_ADDRESSES
+                : _searchMode
+        );
+        if (matchesAddress) return true;
+        if (_searchMode != SearchMode.ANY_ROLE) return false;
 
         return
-            _matchesAddress(
-                IStakingModule(_module).getNodeOperator(_id),
-                _addressToSearch,
-                claimer,
-                _searchMode
-            );
+            IAccounting(_accountingAddress).getCustomRewardsClaimer(_id) ==
+            _addressToSearch;
     }
 
     /// @dev Check if operator matches address based on search mode
     function _matchesAddress(
         IStakingModule.NodeOperator memory _operator,
         address _addressToSearch,
-        address _claimer,
         SearchMode _searchMode
     ) internal pure returns (bool matches) {
         if (_searchMode == SearchMode.CURRENT_ADDRESSES) {
@@ -351,20 +388,12 @@ contract SMDiscovery {
         } else if (_searchMode == SearchMode.PROPOSED_ADDRESSES) {
             return (_operator.proposedManagerAddress == _addressToSearch ||
                 _operator.proposedRewardAddress == _addressToSearch);
-        } else if (_searchMode == SearchMode.ALL_ADDRESSES) {
+        } else {
+            // SearchMode.ALL_ADDRESSES
             return (_operator.managerAddress == _addressToSearch ||
                 _operator.rewardAddress == _addressToSearch ||
                 _operator.proposedManagerAddress == _addressToSearch ||
                 _operator.proposedRewardAddress == _addressToSearch);
-        } else if (_searchMode == SearchMode.CLAIMER) {
-            return _claimer == _addressToSearch;
-        } else {
-            // SearchMode.ANY_ROLE
-            return (_operator.managerAddress == _addressToSearch ||
-                _operator.rewardAddress == _addressToSearch ||
-                _operator.proposedManagerAddress == _addressToSearch ||
-                _operator.proposedRewardAddress == _addressToSearch ||
-                _claimer == _addressToSearch);
         }
     }
 
@@ -544,9 +573,7 @@ contract SMDiscovery {
         uint256 _offset,
         uint256 _limit
     ) internal view returns (NodeOperatorInfo[] memory) {
-        if (_limit == 0 || _limit > MAX_BATCH_SIZE) {
-            revert InvalidLimit(_limit, MAX_BATCH_SIZE);
-        }
+        _validateLimit(_limit);
 
         IStakingModule module = IStakingModule(_module);
         uint256 totalOperators = module.getNodeOperatorsCount();
@@ -590,9 +617,7 @@ contract SMDiscovery {
         uint256 _offset,
         uint256 _limit
     ) internal view returns (uint32[] memory) {
-        if (_limit == 0 || _limit > MAX_BATCH_SIZE) {
-            revert InvalidLimit(_limit, MAX_BATCH_SIZE);
-        }
+        _validateLimit(_limit);
 
         IStakingModule module = IStakingModule(_module);
         uint256 totalOperators = module.getNodeOperatorsCount();
@@ -623,9 +648,7 @@ contract SMDiscovery {
         uint128 _cursorIndex,
         uint256 _limit
     ) internal view returns (Batch[] memory) {
-        if (_limit == 0 || _limit > MAX_BATCH_SIZE) {
-            revert InvalidLimit(_limit, MAX_BATCH_SIZE);
-        }
+        _validateLimit(_limit);
 
         try this._tryGetMaxQueuePriority(_module) returns (
             uint256 maxPriority
@@ -685,6 +708,60 @@ contract SMDiscovery {
                 .QUEUE_LOWEST_PRIORITY();
     }
 
+    /// @dev Internal implementation of getTopUpQueueItems with interface detection
+    function _getTopUpQueueItems(
+        address _module,
+        uint256 _offset,
+        uint256 _limit
+    )
+        internal
+        view
+        returns (
+            bool enabled,
+            uint256 limit,
+            uint256 total,
+            uint256 head,
+            TopUpQueueEntry[] memory items
+        )
+    {
+        _validateLimit(_limit);
+
+        try this._tryGetTopUpQueue(_module) returns (
+            bool enabled_,
+            uint256 limit_,
+            uint256 total_,
+            uint256 head_
+        ) {
+            (enabled, limit, total, head) = (enabled_, limit_, total_, head_);
+        } catch {
+            revert ModuleDoesNotSupportQueueOperations(_module);
+        }
+
+        (uint256 start, uint256 end, ) = _calculateBounds(
+            _offset,
+            _limit,
+            total
+        );
+
+        items = new TopUpQueueEntry[](end - start);
+        for (uint256 i = start; i < end; i++) {
+            (uint256 nodeOperatorId, uint256 keyIndex) = ICSModule(_module)
+                .getTopUpQueueItem(i);
+            items[i - start] = TopUpQueueEntry({
+                nodeOperatorId: nodeOperatorId,
+                keyIndex: keyIndex
+            });
+        }
+    }
+
+    /// @dev Must be external for try-catch: try cannot catch failures decoding the
+    ///      call's return data, so the module read is bounced through this hop
+    function _tryGetTopUpQueue(
+        address _module
+    ) external view returns (bool, uint256, uint256, uint256) {
+        return ICSModule(_module).getTopUpQueue();
+    }
+
     /// @dev Internal implementation of getOperatorsWithLockedBond
     function _getOperatorsWithLockedBond(
         address _module,
@@ -692,9 +769,7 @@ contract SMDiscovery {
         uint256 _offset,
         uint256 _limit
     ) internal view returns (NodeOperatorLockedBond[] memory) {
-        if (_limit == 0 || _limit > MAX_BATCH_SIZE) {
-            revert InvalidLimit(_limit, MAX_BATCH_SIZE);
-        }
+        _validateLimit(_limit);
 
         IStakingModule module = IStakingModule(_module);
         uint256 totalOperators = module.getNodeOperatorsCount();
@@ -743,9 +818,7 @@ contract SMDiscovery {
         uint256 _offset,
         uint256 _limit
     ) internal view returns (NodeOperatorShort[] memory) {
-        if (_limit == 0 || _limit > MAX_BATCH_SIZE) {
-            revert InvalidLimit(_limit, MAX_BATCH_SIZE);
-        }
+        _validateLimit(_limit);
 
         IStakingModule module = IStakingModule(_module);
         uint256 totalOperators = module.getNodeOperatorsCount();
