@@ -115,8 +115,8 @@ just verify-live
 
 | Chain          | StakingRouter                                | SMDiscovery (proxy)                          | Implementation                               |
 |----------------|----------------------------------------------|----------------------------------------------|----------------------------------------------|
-| Mainnet (1)    | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` | `0x106b2E4506f3b3D0A6Dfb41bCB4A64C10Fe32b92` | `0x51E161a6989867E9EE640dFcCE15b9A983936d63` |
-| Hoodi (560048) | `0xCc820558B39ee15C7C45B59390B503b83fb499A8` | `0x9f869227c456feD9A50e272224E438b0e79c6387` | `0xB8929265b77c5Eb6F66A607D9e4002A58142A8bD` |
+| Mainnet (1)    | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` | `0x106b2E4506f3b3D0A6Dfb41bCB4A64C10Fe32b92` | `0x7907377bF9501e6ED580d6Da3724Ea85190A6273` |
+| Hoodi (560048) | `0xCc820558B39ee15C7C45B59390B503b83fb499A8` | `0x9f869227c456feD9A50e272224E438b0e79c6387` | `0xc0239eD239d1545A141A559d5C53045b9eE9B56e` |
 
 Consumers should use the **proxy** address; the implementation is listed only for explorer
 verification and changes on every release.

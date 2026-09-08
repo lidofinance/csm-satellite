@@ -20,7 +20,7 @@ Do not run steps 3+ without an explicit go-ahead.**
 | Scripts | `DeployMainnet` / `UpgradeMainnet` |
 | Artifacts | `artifacts/mainnet/transactions.json` |
 | **Deployed proxy** | `0x106b2E4506f3b3D0A6Dfb41bCB4A64C10Fe32b92` |
-| **Implementation** | `0x51E161a6989867E9EE640dFcCE15b9A983936d63` |
+| **Implementation** | `0x7907377bF9501e6ED580d6Da3724Ea85190A6273` |
 | **Proxy admin** | `0x3E8f6E55601BEF766634e43B26c99C4C01F71863` (deployer EOA) |
 
 The mainnet keystore is **encrypted** — never pass `--password=""` (that is a Hoodi-only
