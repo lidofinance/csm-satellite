@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity 0.8.24;
+
+import {Test} from "forge-std/Test.sol";
+import "../src/SMDiscovery.sol";
+import {OssifiableProxy} from "../src/lib/proxy/OssifiableProxy.sol";
+
+/// @dev Skipped when RPC_URL is unset or points elsewhere, matching QueueDetectionTest.
+contract TopUpQueueForkTest is Test {
+    uint256 internal constant HOODI_CHAIN_ID = 560048;
+    uint256 internal constant HOODI_FORK_BLOCK = 3510000;
+    address internal constant STAKING_ROUTER =
+        0xCc820558B39ee15C7C45B59390B503b83fb499A8;
+    uint256 internal constant CSM_V2_MODULE_ID = 6;
+    uint256 internal constant CURATED_MODULE_ID = 5;
+    address internal constant CURATED_ADDRESS =
+        0x87EB69Ae51317405FD285efD2326a4a11f6173b9;
+    address internal constant PROXY_ADMIN = address(0xA11CE);
+
+    SMDiscovery[] internal instances;
+
+    function setUp() external {
+        string memory rpcUrl = vm.envOr("RPC_URL", string(""));
+        if (bytes(rpcUrl).length == 0) {
+            vm.skip(true);
+            return;
+        }
+
+        vm.createSelectFork(rpcUrl, HOODI_FORK_BLOCK);
+        if (block.chainid != HOODI_CHAIN_ID) {
+            vm.skip(true);
+            return;
+        }
+
+        SMDiscovery implementation = new SMDiscovery(STAKING_ROUTER);
+        OssifiableProxy proxy = new OssifiableProxy(
+            address(implementation),
+            PROXY_ADMIN,
+            ""
+        );
+
+        instances.push(new SMDiscovery(STAKING_ROUTER));
+        instances.push(SMDiscovery(address(proxy)));
+
+        for (uint256 i = 0; i < instances.length; i++) {
+            instances[i].updateModuleCache(CSM_V2_MODULE_ID);
+            instances[i].updateModuleCache(CURATED_MODULE_ID);
+        }
+    }
+
+    function test_csmTopUpQueue_matchesLiveFixture() external view {
+        assertEq(instances.length, 2);
+        for (uint256 i = 0; i < instances.length; i++) {
+            (
+                bool enabled,
+                uint256 limit,
+                uint256 total,
+                uint256 head,
+                TopUpQueueEntry[] memory items
+            ) = instances[i].getTopUpQueueItems(CSM_V2_MODULE_ID, 0, 100);
+
+            assertTrue(enabled);
+            assertEq(limit, 32);
+            assertEq(total, 6);
+            assertEq(head, 5);
+            assertEq(items.length, 6);
+            assertEq(items[0].nodeOperatorId, 1);
+            assertEq(items[0].keyIndex, 0);
+            assertEq(items[1].nodeOperatorId, 1);
+            assertEq(items[1].keyIndex, 1);
+            assertEq(items[2].nodeOperatorId, 2);
+            assertEq(items[2].keyIndex, 0);
+            assertEq(items[3].nodeOperatorId, 2);
+            assertEq(items[3].keyIndex, 1);
+            assertEq(items[4].nodeOperatorId, 3);
+            assertEq(items[4].keyIndex, 0);
+            assertEq(items[5].nodeOperatorId, 4);
+            assertEq(items[5].keyIndex, 0);
+        }
+    }
+
+    function test_csmTopUpQueue_offsetAndLimitSliceMidway() external view {
+        assertEq(instances.length, 2);
+        for (uint256 i = 0; i < instances.length; i++) {
+            (, , , , TopUpQueueEntry[] memory items) = instances[i]
+                .getTopUpQueueItems(CSM_V2_MODULE_ID, 2, 2);
+
+            assertEq(items.length, 2);
+            assertEq(items[0].nodeOperatorId, 2);
+            assertEq(items[0].keyIndex, 0);
+            assertEq(items[1].nodeOperatorId, 2);
+            assertEq(items[1].keyIndex, 1);
+        }
+    }
+
+    function test_curatedModuleTopUpQueue_revertsAsUnsupported() external {
+        assertEq(instances.length, 2);
+        for (uint256 i = 0; i < instances.length; i++) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    ModuleDoesNotSupportQueueOperations.selector,
+                    CURATED_ADDRESS
+                )
+            );
+            instances[i].getTopUpQueueItems(CURATED_MODULE_ID, 0, 10);
+        }
+    }
+}

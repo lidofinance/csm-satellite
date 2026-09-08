@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 /// @dev OssifiableProxy is non-transparent: its own selectors are matched before the
 ///      fallback, so a colliding implementation function would be silently unreachable.
 contract SelectorCollisionTest is Test {
-    function test_noProxySelectorShadowsImplementation() external {
+    function test_noProxySelectorShadowsImplementation() external view {
         string[] memory implSigs = _signatures(
             "out/SMDiscovery.sol/SMDiscovery.json"
         );
