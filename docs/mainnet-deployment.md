@@ -15,6 +15,7 @@ Do not run steps 3+ without an explicit go-ahead.**
 | StakingRouter | `0xFdDf38947aFB03C621C71b06C9C70bce73f12999` |
 | CSM module (id 3) | `0xdA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F` |
 | CM module (id 4) | `0xDa5F930cE326EB5205085D66c72A4E79d60cB8C1` |
+| CSM 0x02 module (id 5) | `0x792Cd25e4aE3578375031FB55e048E163A804F7B` |
 | Deployer | `0x3e8f6e55601bef766634e43b26c99c4c01f71863` (keystore `acc2`) |
 | Account flags | `--account acc2 --sender 0x3e8f6e55601bef766634e43b26c99c4c01f71863` |
 | Scripts | `DeployMainnet` / `UpgradeMainnet` |
@@ -36,8 +37,9 @@ deploy, and where they landed:
    trust weight as the contract itself. Moving it to a multisig is a single
    `proxy__changeAdmin` call and needs no redeploy; until then, treat that key accordingly.
 
-2. **Modules 3 (CSM) and 4 (CM) are both seeded.** CM was commented out in
-   `DeployMainnet.s.sol` while it was unregistered; it is registered now and enabled.
+2. **Modules 3 (CSM), 4 (CM) and 5 (CSM 0x02) are configured** in `DeployMainnet.s.sol`.
+   Module 5 was registered after the proxy deploy and is seeded on the live proxy by a
+   direct permissionless `updateModuleCache(5)` call, no upgrade.
 
 Caching a module never requires an upgrade — `updateModuleCache` is permissionless and can
 be called at any time.

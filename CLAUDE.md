@@ -102,6 +102,7 @@ just verify-live
 |---------------------------------|----|----------------------------------------------|
 | Community Staking Module (CSM)  | 3  | `0xdA7dE2ECdDfccC6c3AF10108Db212ACBBf9EA83F` |
 | Curated Module (CM)             | 4  | `0xDa5F930cE326EB5205085D66c72A4E79d60cB8C1` |
+| Community Staking 0x02 (CSM v2) | 5  | `0x792Cd25e4aE3578375031FB55e048E163A804F7B` |
 
 ### Hoodi Testnet (Chain ID: 560048)
 

@@ -8,5 +8,6 @@ contract DeployMainnet is DeployBase {
         config.stakingRouterAddress = 0xFdDf38947aFB03C621C71b06C9C70bce73f12999;
         config.moduleIds.push(3); // CSM
         config.moduleIds.push(4); // CM
+        config.moduleIds.push(5); // CSM 0x02
     }
 }
